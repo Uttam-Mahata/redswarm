@@ -1,0 +1,7 @@
+# redswarm
+
+node_modules/
+dist/
+.dev.vars
+*.local
+.wrangler/

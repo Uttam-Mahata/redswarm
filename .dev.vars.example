@@ -1,0 +1,9 @@
+# redswarm environment variables
+#
+# All LLM calls run on Cloudflare Workers AI via the AI binding in
+# wrangler.jsonc — no external API keys required.
+#
+# Model selection can be overridden here if needed (defaults in wrangler.jsonc):
+# WORKER_MODEL=@cf/meta/llama-3.1-8b-instruct
+# VALIDATOR_MODEL=@cf/meta/llama-3.1-70b-instruct
+# REPORT_MODEL=@cf/meta/llama-3.1-70b-instruct

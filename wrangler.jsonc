@@ -1,0 +1,52 @@
+{
+  // redswarm worker configuration
+  "name": "redswarm",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ENGAGEMENT_AGENT",
+        "class_name": "EngagementAgent"
+      },
+      {
+        "name": "RECON_SANDBOX",
+        "class_name": "ReconSandbox"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["EngagementAgent"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ReconSandbox"]
+    }
+  ],
+
+  // Cloudflare Sandbox binding for isolated tool execution
+  "containers": [
+    {
+      "class_name": "ReconSandbox",
+      "image": "./sandbox/Dockerfile",
+      "name": "RECON_SANDBOX",
+      "max_instances": 50
+    }
+  ],
+
+  // Workers AI — all LLM calls run on Cloudflare's own models via the AI binding
+  "ai": {
+    "binding": "AI"
+  },
+
+  "vars": {
+    "WORKER_MODEL": "@cf/meta/llama-3.1-8b-instruct",
+    "VALIDATOR_MODEL": "@cf/meta/llama-3.1-70b-instruct",
+    "REPORT_MODEL": "@cf/meta/llama-3.1-70b-instruct"
+  }
+}
