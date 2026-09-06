@@ -2,7 +2,7 @@
   // redswarm worker configuration
   "name": "redswarm",
   "main": "src/index.ts",
-  "compatibility_date": "2025-01-01",
+  "compatibility_date": "2026-01-01",
   "compatibility_flags": ["nodejs_compat"],
 
   "durable_objects": {
@@ -34,7 +34,7 @@
     {
       "class_name": "ReconSandbox",
       "image": "./sandbox/Dockerfile",
-      "name": "RECON_SANDBOX",
+      "name": "recon-sandbox",
       "max_instances": 50
     }
   ],
@@ -48,5 +48,19 @@
     "WORKER_MODEL": "@cf/meta/llama-3.1-8b-instruct",
     "VALIDATOR_MODEL": "@cf/meta/llama-3.1-70b-instruct",
     "REPORT_MODEL": "@cf/meta/llama-3.1-70b-instruct"
+  },
+
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true,
+      "persist": true
+    },
+    "traces": {
+      "enabled": false,
+      "head_sampling_rate": 1,
+      "persist": true
+    }
   }
 }

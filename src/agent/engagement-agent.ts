@@ -32,7 +32,15 @@ import type {
   Env,
 } from "../types/index.js";
 import { v4 as uuidv4 } from "uuid";
-import { ReconSandbox } from "../sandbox/recon-sandbox.js";
+import { getSandbox } from "@cloudflare/sandbox";
+import type { ReconSandbox } from "../sandbox/recon-sandbox.js";
+
+// getSandbox() returns an RPC proxy client, not a plain instance — the
+// ReconSandbox durable object is instantiated by the runtime via the
+// RECON_SANDBOX binding, never with `new ReconSandbox(...)` directly.
+function reconSandboxFor(env: Env, engagementId: string): ReconSandbox {
+  return getSandbox(env.RECON_SANDBOX, engagementId) as unknown as ReconSandbox;
+}
 
 // ---------------------------------------------------------------------------
 // Internal state stored in DO SQLite via this.sql
@@ -68,6 +76,30 @@ export class EngagementAgent extends Agent<Env> {
   // ---------------------------------------------------------------------------
 
   async onStart(): Promise<void> {
+    // Ensure schema exists — onStart fires before any request handler, including
+    // the very first one, so the tables may not have been created yet.
+    await this.sql`
+      CREATE TABLE IF NOT EXISTS engagements (
+        engagement_id TEXT PRIMARY KEY,
+        scope TEXT NOT NULL,
+        phase TEXT NOT NULL,
+        target_domain TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        paused INTEGER NOT NULL DEFAULT 0,
+        killed INTEGER NOT NULL DEFAULT 0
+      )
+    `;
+    await this.sql`
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id TEXT PRIMARY KEY,
+        engagement_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        node TEXT,
+        details TEXT NOT NULL
+      )
+    `;
+
     // Restore engagement record from DO SQLite if we're waking from hibernation
     const rows = await this.sql<EngagementRecord>`
       SELECT * FROM engagements LIMIT 1
@@ -150,28 +182,7 @@ export class EngagementAgent extends Agent<Env> {
       killed: false,
     };
 
-    // Persist to DO SQLite
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS engagements (
-        engagement_id TEXT PRIMARY KEY,
-        scope TEXT NOT NULL,
-        phase TEXT NOT NULL,
-        target_domain TEXT NOT NULL,
-        started_at TEXT NOT NULL,
-        paused INTEGER NOT NULL DEFAULT 0,
-        killed INTEGER NOT NULL DEFAULT 0
-      )
-    `;
-    await this.sql`
-      CREATE TABLE IF NOT EXISTS audit_log (
-        id TEXT PRIMARY KEY,
-        engagement_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        timestamp TEXT NOT NULL,
-        node TEXT,
-        details TEXT NOT NULL
-      )
-    `;
+    // Persist to DO SQLite (schema already ensured by onStart)
     await this.sql`
       INSERT INTO engagements (engagement_id, scope, phase, target_domain, started_at, paused, killed)
       VALUES (
@@ -216,7 +227,7 @@ export class EngagementAgent extends Agent<Env> {
 
     // Build a sandbox instance for this engagement
     // In prod this calls the Cloudflare Sandbox binding; here we use a stub
-    const sandbox = new ReconSandbox(this.env as any, this.ctx as any);
+    const sandbox = reconSandboxFor(this.env, record.engagement_id);
 
     const graph = buildGraph(
       {
@@ -264,10 +275,9 @@ export class EngagementAgent extends Agent<Env> {
         if (event.event === "on_chain_end") {
           const output = event.data?.output as Record<string, unknown>;
           if (output?.phase) {
-            this.pushToOperator({
-              type: "phase",
-              phase: output.phase as EngagementPhase,
-            });
+            const phase = output.phase as EngagementPhase;
+            await this.setPhase(phase);
+            this.pushToOperator({ type: "phase", phase });
           }
           if (Array.isArray(output?.validated)) {
             for (const f of output.validated as Finding[]) {
@@ -296,6 +306,10 @@ export class EngagementAgent extends Agent<Env> {
         }
       }
     } catch (err) {
+      // Without this, a graph-execution error is only visible via the
+      // operator WebSocket (if connected at the moment) or the audit log
+      // (no read endpoint) — invisible to `wrangler tail` / Workers Logs.
+      console.error(`runGraph failed for engagement ${record.engagement_id}:`, err);
       this.pushToOperator({
         type: "error",
         message: String(err),
@@ -374,7 +388,7 @@ export class EngagementAgent extends Agent<Env> {
         };
         const graph = buildGraph(
           {
-            sandbox: new ReconSandbox(this.env as any, this.ctx as any),
+            sandbox: reconSandboxFor(this.env, this.engagementRecord?.engagement_id ?? ""),
             llmConfig: {
               ai: this.env.AI,
               worker_model: this.env.WORKER_MODEL,
@@ -472,6 +486,13 @@ export class EngagementAgent extends Agent<Env> {
       UPDATE engagements SET paused = ${paused ? 1 : 0}
     `;
     if (this.engagementRecord) this.engagementRecord.paused = paused;
+  }
+
+  private async setPhase(phase: EngagementPhase): Promise<void> {
+    await this.sql`
+      UPDATE engagements SET phase = ${phase}
+    `;
+    if (this.engagementRecord) this.engagementRecord.phase = phase;
   }
 
   private async setKilled(killed: boolean): Promise<void> {

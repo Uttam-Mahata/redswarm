@@ -1,5 +1,10 @@
 # ReconSandbox — Cloudflare Sandbox base image + security recon tools
-FROM docker.io/cloudflare/sandbox:0.7.0
+#
+# This MUST track the @cloudflare/sandbox npm version in package.json — the
+# container image is the server side of the sandbox control protocol, and a
+# version mismatch with the client SDK breaks the control-port handshake
+# ("The requested endpoint was not found" from RuntimeBootstrapProbe).
+FROM docker.io/cloudflare/sandbox:0.13.0-next.751.1
 
 # Security recon tools (nmap, curl, dig)
 RUN apt-get update && apt-get install -y \

@@ -66,10 +66,9 @@ export function buildGraph(ctx: GraphRunContext, checkpointer: unknown) {
   const graph = new StateGraph(EngagementStateAnnotation) as any;
 
   // --- Nodes ---
-
-  graph.addNode("orchestrator", async (_state: EngagementState) => {
-    return {}; // orchestrator drives fan-out via conditional edge below
-  });
+  // Note: there's no "orchestrator" node — orchestratorNode() runs directly
+  // as the conditional-edge function off START (see below) so it can
+  // fan out via Send() before any node executes.
 
   graph.addNode("worker", async (input: unknown) => {
     const workerCtx: WorkerNodeContext = {
@@ -103,7 +102,7 @@ export function buildGraph(ctx: GraphRunContext, checkpointer: unknown) {
     },
   );
 
-  graph.addNode("report", async (state: EngagementState) => {
+  graph.addNode("report_node", async (state: EngagementState) => {
     const reportCtx: ReportNodeContext = {
       llmConfig: ctx.llmConfig,
       auditAppend: ctx.auditAppend,
@@ -138,10 +137,10 @@ export function buildGraph(ctx: GraphRunContext, checkpointer: unknown) {
   graph.addEdge("exploit_validation", "human_interrupt_gate");
 
   // human_interrupt_gate → report
-  graph.addEdge("human_interrupt_gate", "report");
+  graph.addEdge("human_interrupt_gate", "report_node");
 
   // report → END
-  graph.addEdge("report", END);
+  graph.addEdge("report_node", END);
 
   return graph.compile({ checkpointer });
 }

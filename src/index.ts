@@ -12,11 +12,14 @@
  */
 
 import { routeAgentRequest } from "agents";
+import { ContainerProxy } from "@cloudflare/sandbox";
 import { EngagementAgent } from "./agent/engagement-agent.js";
 import { ReconSandbox } from "./sandbox/recon-sandbox.js";
 import type { Env } from "./types/index.js";
 
-export { EngagementAgent, ReconSandbox };
+// ReconSandbox uses allowedHosts-based outbound interception to enforce
+// ScopeGrant network egress — this export is required for that to work.
+export { EngagementAgent, ReconSandbox, ContainerProxy };
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -34,7 +37,13 @@ export default {
       if (!engagementId) {
         return new Response("Bad engagement ID", { status: 400 });
       }
-      return proxyToAgent(request, env, engagementId);
+      // Strip the /engagements/:id prefix — the DO's own router expects
+      // paths like /status and /ws, not the full public path.
+      const subPath = match[2] || "/status";
+      const forwardUrl = new URL(request.url);
+      forwardUrl.pathname = subPath;
+      const forwarded = new Request(forwardUrl, request);
+      return proxyToAgent(forwarded, env, engagementId);
     }
 
     // Health check
